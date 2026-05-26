@@ -10,6 +10,7 @@ import sys
 
 from sovereign_agent._internal.llm_client import (
     FakeLLMClient,
+    OpenAICompatibleClient,
     ScriptedResponse,
     ToolCall,
 )
@@ -131,19 +132,47 @@ async def run_scenario(real: bool) -> int:
         print(f"Session {session.session_id}")
         print(f"  dir: {session.directory}")
 
-        # Spawn mock Rasa unless --real
-        server = None
-        if not real:
-            server, _thread, mock_url = spawn_mock_rasa(port=5906)
-            rasa_half = RasaStructuredHalf(rasa_url=mock_url)
-        else:
-            rasa_half = RasaStructuredHalf()
+        # Always use mock Rasa — Rasa real-mode is Ex6's concern
+        server, _thread, mock_url = spawn_mock_rasa(port=5906)
+        rasa_half = RasaStructuredHalf(rasa_url=mock_url)
 
-        client = _build_fake_client_two_rounds()
+        if real:
+            from sovereign_agent.config import Config
+
+            cfg = Config.from_env()
+            print(f"  LLM: {cfg.llm_base_url} (live)")
+            print(f"  planner:  {cfg.llm_planner_model}")
+            print(f"  executor: {cfg.llm_executor_model}")
+            client = OpenAICompatibleClient(
+                base_url=cfg.llm_base_url,
+                api_key_env=cfg.llm_api_key_env,
+            )
+            planner_model = cfg.llm_planner_model
+            executor_model = cfg.llm_executor_model
+            initial_task = {
+                "task": (
+                    "Book a pub venue in Edinburgh for a party of 12, Friday 25 April 2026 at 19:30 near Haymarket.\n"
+                    "REQUIRED steps:\n"
+                    "  1. Call venue_search(near='Haymarket', party_size=12, budget_max_gbp=2000)\n"
+                    "  2. Call handoff_to_structured with the chosen venue's booking data\n"
+                    "  3. If rejected (party too large/deposit too high), call venue_search ONCE MORE with adjusted params\n"
+                    "  4. Call handoff_to_structured again with the new venue\n"
+                    "RULES:\n"
+                    "  - Call venue_search at most TWICE total\n"
+                    "  - Always call handoff_to_structured after finding a venue — never skip it\n"
+                    "  - Do NOT call complete_task — the bridge handles completion\n"
+                )
+            }
+        else:
+            print("  LLM: FakeLLMClient (offline, scripted)")
+            client = _build_fake_client_two_rounds()
+            planner_model = executor_model = "fake"
+            initial_task = {"task": "book for party of 12 in Haymarket"}
+
         tools = build_tool_registry(session)
         loop_half = LoopHalf(
-            planner=DefaultPlanner(model="fake", client=client),
-            executor=DefaultExecutor(model="fake", client=client, tools=tools),  # type: ignore[arg-type]
+            planner=DefaultPlanner(model=planner_model, client=client),
+            executor=DefaultExecutor(model=executor_model, client=client, tools=tools),  # type: ignore[arg-type]
         )
         bridge = HandoffBridge(
             loop_half=loop_half,
@@ -152,10 +181,9 @@ async def run_scenario(real: bool) -> int:
         )
 
         try:
-            result = await bridge.run(session, {"task": "book for party of 12 in Haymarket"})
+            result = await bridge.run(session, initial_task)
         finally:
-            if server is not None:
-                server.shutdown()
+            server.shutdown()
 
         print(f"\nBridge outcome: {result.outcome}")
         print(f"  rounds: {result.rounds}")
