@@ -62,7 +62,6 @@ misclassifying the response.
 
 ## Citations
 
-List at least TWO specific citations from YOUR session directory:
-
-- `sessions/sess_<id>/logs/trace.jsonl:<line>` — <event showing Rasa dispatch>
-- `sessions/sess_<id>/...` — <artifact showing the custom action's output>
+- `examples/ex6-rasa-half/sess_13fc28146ebc/logs/trace.jsonl:1` — `structured.dispatch` event showing raw (pre-normalisation) input posted to the Rasa webhook: `venue_id="Haymarket Tap"`, `date="25th April 2026"`, `time="7:30pm"`, `party_size="6"`
+- `examples/ex6-rasa-half/sess_13fc28146ebc/logs/trace.jsonl:2` — `structured.result` event confirming the custom action returned `custom.action="committed"` and `booking_reference="BK-7D401E9E"`, which `RasaStructuredHalf.run()` translated to `HalfResult(success=True, next_action="complete")`
+- `examples/ex6-rasa-half/sess_13fc28146ebc/workspace/booking_result.json` — full normalised booking artifact written to workspace, showing `venue_id="haymarket_tap"`, `date="2026-04-25"`, `time="19:30"`, `party_size=6` (int)
