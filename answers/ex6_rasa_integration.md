@@ -16,6 +16,50 @@ you would change about the integration if you were building this for production.
 
 ---
 
+**Input dict → Rasa payload.**
+`RasaStructuredHalf.run()` receives `input_payload["data"]` and hands it
+to `normalise_booking_payload()` in `validator.py`. That function runs
+five field-level normalisers: `canonicalise_venue_id` lowercases and
+replaces whitespace/hyphens with underscores ("Haymarket Tap" →
+"haymarket_tap"); `_normalise_date` handles ISO-8601 passthrough, the
+literals "today"/"tomorrow", and natural-language ordinals ("25th April
+2026" → "2026-04-25"); `parse_time_24h` accepts both 12-hour ("7:30pm")
+and 24-hour ("19:30") strings; `parse_party_size` strips trailing words
+("6 people" → 6) and rejects values < 1; `parse_currency_gbp` strips
+"£" and "GBP" suffixes and returns an int. Any unrecoverable input raises
+`ValidationFailed`, which `run()` catches and returns as a
+`HalfResult(success=False, next_action="escalate")`. Clean data is
+assembled into `{"sender": "homework-<sha1[:8]>", "message":
+"/confirm_booking", "metadata": {"booking": {...}}}` where the sender is
+a SHA-1 hash of `venue_id-date-time`, making retries idempotent within
+one booking slot.
+
+**ActionValidateBooking → HalfResult.**
+The CALM flow (`data/flows.yml`) triggers `action_validate_booking` on
+receiving `/confirm_booking`. The action reads
+`tracker.latest_message.metadata.booking` — the same dict we posted —
+explicitly sets all booking fields as Rasa slots, then applies two rule
+checks: `party_size > 8` → `SlotSet("validation_error", "party_too_large")`
+and `deposit_gbp > 300` → `SlotSet("validation_error", "deposit_too_high")`.
+Missing required fields each produce `SlotSet("validation_error",
+"missing_<field>")`. On success it emits `SlotSet("booking_reference",
+"BK-<sha1[:8]>")` and clears `validation_error`. The CALM flow then
+branches: failure utters `utter_booking_rejected`, success utters
+`utter_booking_confirmed`. `RasaStructuredHalf.run()` reads the response
+messages: `custom.action == "committed"` → `HalfResult(success=True,
+next_action="complete")`; `custom.action == "rejected"` →
+`HalfResult(success=False, next_action="escalate")`.
+
+**Production change.**
+The response parser falls back to string matching (`"booking confirmed"
+in text`, `"can't accept" in text`) alongside the structured `custom`
+dict. A template change by a non-engineer silently breaks this without
+any test failure, because the `custom` dict remains correct while the
+text branch produces stale decisions. For production I would remove
+the text-matching entirely and require `custom.action` to be present,
+surfacing a clear error when it is absent rather than silently
+misclassifying the response.
+
 ## Citations
 
 List at least TWO specific citations from YOUR session directory:
