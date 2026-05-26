@@ -61,6 +61,22 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
             summary="STOP calling venue_search; use the results you already have.",
         )
 
+    # Validate party_size against catering fixture's auto-booking cap
+    catering_path = _SAMPLE_DATA / "catering.json"
+    if catering_path.exists():
+        catering_data = json.loads(catering_path.read_text())
+        max_auto = catering_data.get("maximum_party_size_for_auto_booking", 8)
+        if party_size > max_auto:
+            return ToolResult(
+                success=False,
+                output={"error": "party_size_exceeds_max", "party_size": party_size, "max": max_auto},
+                summary=(
+                    f"venue_search: party_size={party_size} exceeds the auto-booking max ({max_auto}). "
+                    f"Use the party size from the task context instead."
+                ),
+                error=ToolError(code="SA_TOOL_INVALID_INPUT", message=f"party_size {party_size} > max {max_auto}"),
+            )
+
     fixture_path = _SAMPLE_DATA / "venues.json"
     if not fixture_path.exists():
         return ToolResult(
@@ -87,6 +103,16 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
         "count": len(results),
     }
     record_tool_call("venue_search", {"near": near, "party_size": party_size, "budget_max_gbp": budget_max_gbp}, output)
+
+    if not results:
+        return ToolResult(
+            success=False,
+            output=output,
+            summary=(
+                f"venue_search({near}, party={party_size}): 0 result(s). "
+                "No venues matched. Do NOT call venue_search again with different parameters."
+            ),
+        )
 
     return ToolResult(
         success=True,
