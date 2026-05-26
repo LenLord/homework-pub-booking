@@ -50,7 +50,7 @@ class ValidationFailed(ValueError):  # noqa: N818
 # TODO — normalise_booking_payload
 # ---------------------------------------------------------------------------
 def normalise_booking_payload(raw: dict) -> dict:
-    """Take a data dict from the loop half's handoff and produce a Rasa-shaped message."""
+    """Convert a loop-half data dict into the Rasa REST webhook message shape."""
     import hashlib
 
     if not isinstance(raw, dict):
@@ -77,20 +77,21 @@ def normalise_booking_payload(raw: dict) -> dict:
     if raw.get("deposit") is not None:
         deposit = parse_currency_gbp(raw["deposit"])
 
-    duration = raw.get("duration_hours", 3)
-    if isinstance(duration, str) and duration.isdigit():
-        duration = int(duration)
-    if not isinstance(duration, int) or duration < 1:
-        duration = 3
+    dur = raw.get("duration_hours", 3)
+    if isinstance(dur, str) and dur.isdigit():
+        dur = int(dur)
+    if not isinstance(dur, int) or dur < 1:
+        dur = 3
 
-    catering = raw.get("catering_tier", "bar_snacks")
-    if catering not in ("drinks_only", "bar_snacks", "sit_down_meal", "three_course_meal"):
-        catering = "bar_snacks"
+    _valid_tiers = ("drinks_only", "bar_snacks", "sit_down_meal", "three_course_meal")
+    catering_val = raw.get("catering_tier", "bar_snacks")
+    if catering_val not in _valid_tiers:
+        catering_val = "bar_snacks"
 
-    stable_suffix = hashlib.sha1(f"{venue_id}-{date_iso}-{time_24h}".encode()).hexdigest()[:8]
+    hash_suffix = hashlib.sha1(f"{venue_id}-{date_iso}-{time_24h}".encode()).hexdigest()[:8]
 
     return {
-        "sender": f"homework-{stable_suffix}",
+        "sender": f"homework-{hash_suffix}",
         "message": "/confirm_booking",
         "metadata": {
             "booking": {
@@ -99,8 +100,8 @@ def normalise_booking_payload(raw: dict) -> dict:
                 "time": time_24h,
                 "party_size": party,
                 "deposit_gbp": deposit,
-                "duration_hours": duration,
-                "catering_tier": catering,
+                "duration_hours": dur,
+                "catering_tier": catering_val,
             }
         },
     }

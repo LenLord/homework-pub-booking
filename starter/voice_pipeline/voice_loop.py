@@ -89,8 +89,8 @@ async def run_voice_mode(session: Session, persona: ManagerPersona, max_turns: i
 
     if not speechmatics_key:
         print(
-            "⚠  SPEECHMATICS_KEY not set — falling back to text mode.\n"
-            "   Add to .env and re-run for real voice.",
+            "SPEECHMATICS_KEY not set — switching to text mode.\n"
+            "Set it in .env and re-run to enable real voice input.",
             file=sys.stderr,
         )
         await run_text_mode(session, persona, max_turns=max_turns)
@@ -120,17 +120,17 @@ async def run_voice_mode(session: Session, persona: ManagerPersona, max_turns: i
     rime_enabled = bool(rime_key)
     if not rime_enabled:
         print(
-            "ℹ  RIME_API_KEY not set — manager replies will be printed, not spoken.",
+            "RIME_API_KEY not set — manager responses printed only, no audio playback.",
             file=sys.stderr,
         )
 
-    print(f"🎙️  Voice mode. Session: {session.session_id}")
-    print(f"    Speak when prompted. Silence for {SILENCE_TIMEOUT_S}s ends a turn.")
-    print(f"    Max utterance: {MAX_UTTERANCE_S}s. Say 'goodbye' to end.")
+    print(f"Voice mode active. Session: {session.session_id}")
+    print(f"  Speak after the prompt. {SILENCE_TIMEOUT_S}s of silence ends a turn.")
+    print(f"  Max per turn: {MAX_UTTERANCE_S}s. Say 'goodbye' or 'bye' to end.")
     print("-" * 60)
 
     for turn_idx in range(max_turns):
-        print(f"\n[turn {turn_idx + 1}] 🎤 listening...")
+        print(f"\n[turn {turn_idx + 1}] listening...")
 
         # ── capture audio ──────────────────────────────────────────
         try:

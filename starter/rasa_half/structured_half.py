@@ -58,7 +58,7 @@ class RasaStructuredHalf(StructuredHalf):
         return {
             "name": self.name,
             "kind": "half",
-            "description": "Rasa CALM-backed structured half for booking confirmation.",
+            "description": "Structured half that validates bookings via Rasa CALM REST webhook.",
             "parameters": {"type": "object"},
             "returns": {"type": "object"},
             "error_codes": ["SA_EXT_SERVICE_UNAVAILABLE", "SA_EXT_TIMEOUT"],
@@ -155,10 +155,10 @@ class RasaStructuredHalf(StructuredHalf):
                 next_action="escalate",
             )
 
-        confirmed = False
-        rejected = False
-        rejection_reason = ""
-        booking_reference = None
+        is_confirmed = False
+        is_rejected = False
+        decline_reason = ""
+        booking_ref = None
         for m in messages:
             if not isinstance(m, dict):
                 continue
@@ -167,38 +167,38 @@ class RasaStructuredHalf(StructuredHalf):
             action = custom.get("action") if isinstance(custom, dict) else None
 
             if action == "committed" or "booking confirmed" in text:
-                confirmed = True
+                is_confirmed = True
                 if isinstance(custom, dict):
-                    booking_reference = custom.get("booking_reference")
-                if "reference:" in text and not booking_reference:
-                    booking_reference = text.split("reference:", 1)[1].strip().rstrip(".").upper()
+                    booking_ref = custom.get("booking_reference")
+                if "reference:" in text and not booking_ref:
+                    booking_ref = text.split("reference:", 1)[1].strip().rstrip(".").upper()
             if action == "rejected" or "can't accept" in text or "rejected" in text:
-                rejected = True
-                rejection_reason = text or "rejected by rasa"
+                is_rejected = True
+                decline_reason = text or "rejected by rasa"
 
-        if confirmed and not rejected:
+        if is_confirmed and not is_rejected:
             return HalfResult(
                 success=True,
                 output={
                     "committed": True,
                     "booking": booking,
-                    "booking_reference": booking_reference,
+                    "booking_reference": booking_ref,
                     "rasa_response": messages,
                 },
-                summary=f"booking confirmed by rasa (ref={booking_reference})",
+                summary=f"booking confirmed by rasa (ref={booking_ref})",
                 next_action="complete",
             )
 
-        if rejected:
+        if is_rejected:
             return HalfResult(
                 success=False,
                 output={
                     "rejected": True,
-                    "reason": rejection_reason,
+                    "reason": decline_reason,
                     "rasa_response": messages,
                     "booking": booking,
                 },
-                summary=f"rasa rejected: {rejection_reason}",
+                summary=f"rasa rejected: {decline_reason}",
                 next_action="escalate",
             )
 

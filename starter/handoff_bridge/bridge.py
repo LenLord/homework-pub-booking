@@ -58,8 +58,8 @@ class HandoffBridge:
         from sovereign_agent.handoff import write_handoff
 
         rounds = 0
-        current_input: dict = initial_task
-        last_loop = last_struct = None
+        task_input: dict = initial_task
+        prev_loop = prev_struct = None
 
         while rounds < self.max_rounds:
             rounds += 1
@@ -70,8 +70,8 @@ class HandoffBridge:
                     "payload": {"round": rounds, "half": "loop"},
                 }
             )
-            loop_result = await self.loop_half.run(session, current_input)
-            last_loop = loop_result
+            loop_result = await self.loop_half.run(session, task_input)
+            prev_loop = loop_result
 
             if loop_result.next_action == "complete":
                 session.mark_complete(loop_result.output)
@@ -86,7 +86,7 @@ class HandoffBridge:
                     outcome="completed",
                     rounds=rounds,
                     final_half_result=loop_result,
-                    summary=f"loop completed in round {rounds}",
+                    summary=f"loop half completed in round {rounds}",
                 )
 
             if loop_result.next_action != "handoff_to_structured":
@@ -97,11 +97,11 @@ class HandoffBridge:
                     outcome="failed",
                     rounds=rounds,
                     final_half_result=loop_result,
-                    summary=f"unexpected loop outcome: {loop_result.next_action}",
+                    summary=f"unexpected loop next_action: {loop_result.next_action}",
                 )
 
-            handoff = build_forward_handoff(session, loop_result)
-            write_handoff(session, "structured", handoff)
+            fwd_handoff = build_forward_handoff(session, loop_result)
+            write_handoff(session, "structured", fwd_handoff)
             session.append_trace_event(
                 {
                     "event_type": "session.state_changed",
@@ -110,8 +110,8 @@ class HandoffBridge:
                 }
             )
 
-            struct_result = await self.structured_half.run(session, {"data": handoff.data})
-            last_struct = struct_result
+            struct_result = await self.structured_half.run(session, {"data": fwd_handoff.data})
+            prev_struct = struct_result
 
             if struct_result.next_action == "complete":
                 session.mark_complete(struct_result.output)
@@ -130,7 +130,7 @@ class HandoffBridge:
                 )
 
             if struct_result.next_action == "escalate":
-                current_input = build_reverse_task(loop_result, struct_result)
+                task_input = build_reverse_task(loop_result, struct_result)
                 session.append_trace_event(
                     {
                         "event_type": "session.state_changed",
@@ -162,12 +162,12 @@ class HandoffBridge:
             )
 
         session.mark_failed({"reason": f"max_rounds={self.max_rounds} exceeded"})
-        final = last_struct or last_loop
+        final = prev_struct or prev_loop
         return BridgeResult(
             outcome="max_rounds_exceeded",
             rounds=rounds,
             final_half_result=final,
-            summary=f"bridge exhausted {self.max_rounds} rounds without resolution",
+            summary=f"no resolution after {self.max_rounds} rounds",
         )
 
 
@@ -193,16 +193,16 @@ def build_forward_handoff(session: Session, loop_result: HalfResult) -> Handoff:
 
 
 def build_reverse_task(loop_result: HalfResult, struct_result: HalfResult) -> dict:
-    """Build the task dict to pass back to the loop half after a reject."""
-    reason = struct_result.output.get("reason") or struct_result.summary
+    """Build the retry task dict for the loop half after a structured-half rejection."""
+    reject_reason = struct_result.output.get("reason") or struct_result.summary
     return {
         "task": (
-            "The structured half rejected the previous proposal. "
-            f"Reason: {reason}. Produce an alternative."
+            f"Previous proposal was rejected: {reject_reason}. "
+            "Suggest an alternative booking."
         ),
         "context": {
             "prior_result": loop_result.output,
-            "rejection_reason": reason,
+            "rejection_reason": reject_reason,
             "retry": True,
         },
     }

@@ -20,24 +20,22 @@ from sovereign_agent._internal.llm_client import (
 # here. Keep the rules section intact — the grader's judge checks that
 # the manager's decisions still follow them.
 MANAGER_SYSTEM_PROMPT = """\
-You are Alasdair MacLeod, the manager of Haymarket Tap in Edinburgh.
-You are gruff but fair. You speak in short, direct sentences with an
-occasional Scottish idiom. You do NOT break character.
+You are Alasdair MacLeod, manager of Haymarket Tap in Edinburgh.
+You are blunt and no-nonsense, but fair. Speak in short sentences;
+use the occasional Scots expression. Never break character.
 
-You are responsible for deciding whether to accept bookings. Your rules:
+Booking rules you enforce:
 
-  * Parties of 8 or fewer: ACCEPT unless deposit is over £300.
-  * Parties of 9 or more: DECLINE politely; suggest they try a
-    larger venue like The Royal Oak or Bennet's Bar.
-  * Deposits over £300: DECLINE (above your auto-approve ceiling);
-    tell them head office needs to sign off on anything larger.
+  * Up to 8 guests: ACCEPT, unless the requested deposit exceeds £300.
+  * 9 or more guests: DECLINE — the venue can't fit them. Point them
+    toward The Royal Oak or Bennet's Bar instead.
+  * Deposit above £300: DECLINE — that needs head-office approval,
+    which you don't have.
 
-When you accept, say something like "Aye, we can do that. I'll pencil
-you in for <date> at <time>. What's the contact number?"
+On acceptance: confirm the date and time, then ask for a contact number.
+On refusal: state the exact reason. Invent no additional rules.
 
-When you decline, name the specific reason. Do not make up other rules.
-
-Keep responses under 60 words. Do not use emoji.
+Limit replies to 60 words. No emoji.
 """
 
 
@@ -69,31 +67,25 @@ class ManagerPersona:
 
     async def respond(self, utterance: str) -> str:
         """Send one user utterance, get the manager's reply back."""
-        messages = self._build_messages(utterance)
+        msg_list = self._build_messages(utterance)
         resp = await self.client.chat(
             model=self.model,
-            messages=messages,
+            messages=msg_list,
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=180,
         )
-        reply = (resp.content or "").strip()
-        self.history.append(ManagerTurn(user_utterance=utterance, manager_response=reply))
-        return reply
+        response = (resp.content or "").strip()
+        self.history.append(ManagerTurn(user_utterance=utterance, manager_response=response))
+        return response
 
     def _build_messages(self, utterance: str) -> list[ChatMessage]:
-        """System prompt + history + new user message. History is included
-        so the manager remembers prior turns (deposit, party size, etc.).
-
-        TODO: if you want to experiment with a windowed history (drop
-        oldest turns when context gets long), do it here. The default
-        shown below keeps everything — fine for short conversations.
-        """
-        msgs: list[ChatMessage] = [ChatMessage(role="system", content=self.system_prompt)]
+        """System prompt + full turn history + incoming utterance."""
+        msg_list: list[ChatMessage] = [ChatMessage(role="system", content=self.system_prompt)]
         for turn in self.history:
-            msgs.append(ChatMessage(role="user", content=turn.user_utterance))
-            msgs.append(ChatMessage(role="assistant", content=turn.manager_response))
-        msgs.append(ChatMessage(role="user", content=utterance))
-        return msgs
+            msg_list.append(ChatMessage(role="user", content=turn.user_utterance))
+            msg_list.append(ChatMessage(role="assistant", content=turn.manager_response))
+        msg_list.append(ChatMessage(role="user", content=utterance))
+        return msg_list
 
 
 __all__ = ["MANAGER_SYSTEM_PROMPT", "ManagerPersona", "ManagerTurn"]
