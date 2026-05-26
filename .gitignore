@@ -8,6 +8,7 @@
 # Sessions contain API output and should not be committed.
 sessions/
 examples/
+homework/
 demo_sessions_*/
 *.session.json
 
