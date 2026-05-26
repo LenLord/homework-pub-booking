@@ -19,14 +19,12 @@ from pathlib import Path
 from typing import Any
 
 from sovereign_agent._internal.atomic import atomic_write_text
-from sovereign_agent.errors import IOError as SovereignIOError
 from sovereign_agent.errors import ToolError
 from sovereign_agent.session.directory import Session
 from sovereign_agent.tools.registry import ToolRegistry, ToolResult, _RegisteredTool
 
 from starter.edinburgh_research.integrity import (
     _TOOL_CALL_LOG,
-    ToolCallRecord,
     record_tool_call,
 )
 
@@ -69,12 +67,19 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
         if party_size > max_auto:
             return ToolResult(
                 success=False,
-                output={"error": "party_size_exceeds_max", "party_size": party_size, "max": max_auto},
+                output={
+                    "error": "party_size_exceeds_max",
+                    "party_size": party_size,
+                    "max": max_auto,
+                },
                 summary=(
                     f"venue_search: party_size={party_size} exceeds the auto-booking max ({max_auto}). "
                     f"Use the party size from the task context instead."
                 ),
-                error=ToolError(code="SA_TOOL_INVALID_INPUT", message=f"party_size {party_size} > max {max_auto}"),
+                error=ToolError(
+                    code="SA_TOOL_INVALID_INPUT",
+                    message=f"party_size {party_size} > max {max_auto}",
+                ),
             )
 
     fixture_path = _SAMPLE_DATA / "venues.json"
@@ -105,7 +110,11 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
         "results": results,
         "count": len(results),
     }
-    record_tool_call("venue_search", {"near": near, "party_size": party_size, "budget_max_gbp": budget_max_gbp}, output)
+    record_tool_call(
+        "venue_search",
+        {"near": near, "party_size": party_size, "budget_max_gbp": budget_max_gbp},
+        output,
+    )
 
     if not results:
         return ToolResult(
@@ -162,7 +171,11 @@ def get_weather(city: str, date: str) -> ToolResult:
     if entry is None:
         return ToolResult(
             success=False,
-            output={"city": city, "date": date, "error": f"date '{date}' not in fixture for {city}"},
+            output={
+                "city": city,
+                "date": date,
+                "error": f"date '{date}' not in fixture for {city}",
+            },
             summary=f"get_weather({city}, {date}): date not found",
             error=ToolError(code="SA_TOOL_INVALID_INPUT", message=f"no data for {city} on {date}"),
         )
@@ -231,7 +244,9 @@ def calculate_cost(
             success=False,
             output={"error": f"unknown catering_tier: {catering_tier}"},
             summary=f"calculate_cost: unknown catering_tier '{catering_tier}'",
-            error=ToolError(code="SA_TOOL_INVALID_INPUT", message=f"unknown catering tier: {catering_tier}"),
+            error=ToolError(
+                code="SA_TOOL_INVALID_INPUT", message=f"unknown catering tier: {catering_tier}"
+            ),
         )
     if venue_id not in venue_modifiers:
         return ToolResult(
@@ -275,7 +290,12 @@ def calculate_cost(
     }
     record_tool_call(
         "calculate_cost",
-        {"venue_id": venue_id, "party_size": party_size, "duration_hours": duration_hours, "catering_tier": catering_tier},
+        {
+            "venue_id": venue_id,
+            "party_size": party_size,
+            "duration_hours": duration_hours,
+            "catering_tier": catering_tier,
+        },
         output,
     )
 
