@@ -153,12 +153,13 @@ async def run_scenario(real: bool) -> int:
                 "task": (
                     "Book a pub venue in Edinburgh for a party of 12, Friday 25 April 2026 at 19:30 near Haymarket.\n"
                     "REQUIRED steps:\n"
-                    "  1. Call venue_search(near='Haymarket', party_size=12, budget_max_gbp=2000)\n"
-                    "  2. Call handoff_to_structured with the chosen venue's booking data\n"
-                    "  3. If rejected (party too large/deposit too high), call venue_search ONCE MORE with adjusted params\n"
+                    "  1. Call venue_search(near='Haymarket', party_size=8, budget_max_gbp=2000) to find candidate venues\n"
+                    "  2. Pick the best match and call handoff_to_structured with the venue's booking data\n"
+                    "     Include: venue_id, date (2026-04-25), time (19:30), party_size (12), deposit (0)\n"
+                    "  3. If the structured half rejects, call venue_search again in a different area for party_size=8\n"
                     "  4. Call handoff_to_structured again with the new venue\n"
                     "RULES:\n"
-                    "  - Call venue_search at most TWICE total\n"
+                    "  - venue_search accepts party_size up to 8; the structured half enforces the actual booking constraints\n"
                     "  - Always call handoff_to_structured after finding a venue — never skip it\n"
                     "  - Do NOT call complete_task — the bridge handles completion\n"
                 )

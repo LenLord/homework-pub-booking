@@ -130,7 +130,7 @@ class HandoffBridge:
                 )
 
             if struct_result.next_action == "escalate":
-                task_input = build_reverse_task(loop_result, struct_result)
+                task_input = build_reverse_task(loop_result, struct_result, initial_task)
                 session.append_trace_event(
                     {
                         "event_type": "session.state_changed",
@@ -192,15 +192,20 @@ def build_forward_handoff(session: Session, loop_result: HalfResult) -> Handoff:
     )
 
 
-def build_reverse_task(loop_result: HalfResult, struct_result: HalfResult) -> dict:
+def build_reverse_task(
+    loop_result: HalfResult,
+    struct_result: HalfResult,
+    original_task: dict | None = None,
+) -> dict:
     """Build the retry task dict for the loop half after a structured-half rejection."""
     reject_reason = struct_result.output.get("reason") or struct_result.summary
     return {
         "task": (
             f"Previous proposal was rejected: {reject_reason}. "
-            "Suggest an alternative booking."
+            "Suggest an alternative booking that satisfies the original request."
         ),
         "context": {
+            "original_task": original_task,
             "prior_result": loop_result.output,
             "rejection_reason": reject_reason,
             "retry": True,
