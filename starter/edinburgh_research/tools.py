@@ -87,11 +87,14 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
         )
 
     venues = json.loads(fixture_path.read_text())
+    # City-level query ("Edinburgh") matches all venues; neighbourhood queries
+    # match by substring ("Haymarket" → only Haymarket Tap).
+    city_level = "edinburgh" in near.lower()
     results = [
         v
         for v in venues
         if v.get("open_now")
-        and near.lower() in v.get("area", "").lower()
+        and (city_level or near.lower() in v.get("area", "").lower())
         and v.get("seats_available_evening", 0) >= party_size
         and v.get("hire_fee_gbp", 0) + v.get("min_spend_gbp", 0) <= budget_max_gbp
     ]
@@ -308,6 +311,20 @@ def generate_flyer(session: Session, event_details: dict) -> ToolResult:
     IMPORTANT: this tool MUST be registered with parallel_safe=False
     because it writes a file.
     """
+    required = ["venue_name", "date", "time", "party_size", "total_gbp"]
+    missing = [k for k in required if not event_details.get(k)]
+    if missing:
+        return ToolResult(
+            success=False,
+            output={"error": "missing_event_details", "missing_keys": missing},
+            summary=(
+                f"generate_flyer: missing required fields {missing}. "
+                "Call venue_search, get_weather, and calculate_cost first, "
+                "then pass their outputs as event_details."
+            ),
+            error=ToolError(code="SA_TOOL_INVALID_INPUT", message=f"missing fields: {missing}"),
+        )
+
     venue_name = event_details.get("venue_name", "TBD")
     venue_address = event_details.get("venue_address", "")
     date = event_details.get("date", "")
