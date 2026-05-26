@@ -20,42 +20,34 @@ having tested it. (Full credit still possible.)
 
 ---
 
-I ran in text mode (trace shows `"mode": "text"` throughout).
+I ran Ex8 in text mode; every trace event has `"mode": "text"`.
 
-**Conversation state.** State lives entirely in
-`ManagerPersona.history` — a Python list of `ManagerTurn` objects, each
-holding `user_utterance` + `manager_response`. On every `respond()`
-call, `_build_messages()` prepends the fixed system prompt and then
-replays the full history as alternating `user`/`assistant` messages
-before appending the new utterance. The model therefore sees the
-complete conversation on every call. This is in-process, in-RAM storage:
-it is NOT written to disk. The session's `trace.jsonl` records every
-turn's text verbatim, so the conversation is recoverable from logs, but
-if the process crashes mid-session the live `history` is gone and the
-persona would restart without context.
+Conversation state lives in `ManagerPersona.history`, a plain Python
+list of `ManagerTurn` objects. Each turn stores the user's utterance and
+Alasdair's reply. On every `respond()` call, `_build_messages()` sends
+the fixed system prompt first, then replays the whole history as
+alternating `user` and `assistant` messages, and finally appends the new
+utterance. So the model sees the full conversation each time. The live
+state is only in memory. The trace file logs each utterance, which is
+enough for audit or reconstruction, but a crashed process would not
+resume `ManagerPersona.history` automatically.
 
-**Persona.** `ManagerPersona` uses `temperature=0.0`, which makes the
-model deterministic: the same conversation history always produces the
-same reply. The system prompt locks in the character (Alasdair MacLeod,
-blunt, Scots expressions, 60-word limit) and explicitly enumerates the
-booking rules. The model enforces them without deviation — turn 2 in the
-trace shows a party-of-239 request being rejected with "Too big, I'm
-afraid. We cannae handle parties o' that size. Try The Royal Oak or
-Bennet's Bar." The alternatives are named directly from the system prompt
-rules, confirming the model is grounding decisions in the prompt rather
-than improvising.
+The persona mostly stays in character through a narrow system prompt
+and `temperature=0.0`. The prompt gives the manager a name, style, word
+limit, and the exact booking rules: accept up to 8 guests unless the
+deposit is above £300, decline 9 or more, and name alternatives. The
+run shows that working. When I typed `239`, the manager replied that the
+party was too large and suggested The Royal Oak or Bennet's Bar, while
+still using short Edinburgh-flavoured phrasing.
 
-**Plausible voice failure mode.** The silence detector in
-`_record_until_silence` uses a fixed RMS threshold of 500 (int16 scale)
-to decide when a user has stopped speaking. In a noisy environment —
-which a pub almost certainly is — ambient noise (music, crowd chatter)
-keeps RMS above that threshold continuously. The silence condition never
-triggers, so every turn runs until the hard cap of `MAX_UTTERANCE_S = 15
-seconds`. The user hears no response for up to 15 seconds, not the
-expected 2-second turnaround. The fix is an adaptive threshold that
-calibrates against the first 0.5 seconds of ambient noise before the
-user speaks, or replacing the amplitude gate with a proper VAD model
-(WebRTC VAD or Silero) that distinguishes speech from background noise.
+I did not run real voice mode. The first voice failure I would expect is
+bad turn-taking from the recorder. `_record_until_silence` uses a fixed
+RMS threshold of 500 to decide whether the user has stopped speaking.
+In a noisy pub, background music or chatter could keep the RMS above
+that threshold, so the loop would wait until the 15-second hard cap
+instead of stopping after 2 seconds of silence. I would replace the
+fixed amplitude gate with an adaptive threshold from a short ambient
+calibration window, or use a real VAD such as WebRTC VAD or Silero.
 
 ## Citations
 

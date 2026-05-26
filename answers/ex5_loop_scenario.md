@@ -20,28 +20,32 @@ sg_1 ("research Edinburgh venues near Haymarket for a party of 6") and
 sg_2 ("produce an HTML flyer with the chosen venue, weather, and cost").
 sg_2 depends on sg_1; the planner estimated four total tool calls.
 
-The executor completed sg_1 in four turns with five tool calls.
-Turn 1 called `venue_search(near='Haymarket', party_size=6,
-budget_max_gbp=800)`, returning one result — Haymarket Tap. Still in
-the same turn, `get_weather(city='edinburgh', date='2026-04-25')` and
-`calculate_cost(venue_id='haymarket_tap', ...)` ran next; all three are
-read-only and parallel_safe. Turn 2 called `generate_flyer`, which
-writes `workspace/flyer.html` and is therefore not parallel_safe. Turn
-3 called `complete_task`.
+The executor then made the expected five tool calls. First it called
+`venue_search(near='Haymarket', party_size=6, budget_max_gbp=800)`,
+which returned Haymarket Tap. In the same executor step it also called
+`get_weather(city='edinburgh', date='2026-04-25')` and
+`calculate_cost(venue_id='haymarket_tap', party_size=6,
+duration_hours=3, catering_tier='bar_snacks')`. Those three calls are
+read-only and registered as `parallel_safe=True`. The next step called
+`generate_flyer`, which writes `workspace/flyer.html`, so its
+registration is correctly `parallel_safe=False`. The final call was
+`complete_task`.
 
-The dataflow integrity check would have flagged two issues if left
-uncorrected. First, `calculate_cost` returned total £556 and deposit
-£111, but `generate_flyer` was called with `total_gbp: 540` and
-`deposit_required_gbp: 0` — fabricated values that never appeared in
-any tool output. Second, the rendered flyer HTML contained `£9999` as
-the total cost — a grader-planted value that does not appear in any
-tool output or argument anywhere in the session. `verify_dataflow`
-extracts money facts via regex and checks each against the full tool
-call log; `£9999` fails immediately. I corrected the generate_flyer
-call to pass the actual £556 and £111 from the calculate_cost output,
-and the planted value in the flyer was caught and replaced.
+Step-by-step verification showed one awkward detail: `calculate_cost`
+returned total £556 and deposit £111, while the scripted
+`generate_flyer` call used `total_gbp: 540` and
+`deposit_required_gbp: 0`. The current integrity checker does not flag
+that mismatch, because `fact_appears_in_log` accepts facts found in
+tool arguments as well as tool outputs. It does catch values that appear
+only in the final flyer. In `sess_6b3d51602f58`, the flyer was edited
+to show `£9999`; that number is absent from the tool log, so
+`verify_dataflow` returns `ok=False` with `unverified_facts=["£9999"]`.
+After rerunning the offline scenario, the normal flyer passed with four
+verified facts.
 
 ## Citations
 
-- `examples/ex5-edinburgh-research/sess_6b3d51602f58/logs/tickets/tk_f5c342b3/summary.md` — planner produced 2 subgoals, both assigned to loop half
-- `examples/ex5-edinburgh-research/sess_6b3d51602f58/logs/trace.jsonl:5` — `executor.tool_called` for calculate_cost returning £556/£111, contrasting with line 6 where generate_flyer received fabricated £540/£0
+- `examples/ex5-edinburgh-research/sess_52b043e62444/logs/trace.jsonl:2` — planner produced 2 subgoals
+- `examples/ex5-edinburgh-research/sess_52b043e62444/logs/trace.jsonl:3` — `venue_search` for Haymarket party of 6
+- `examples/ex5-edinburgh-research/sess_52b043e62444/logs/trace.jsonl:5` — `calculate_cost` returning £556/£111
+- `examples/ex5-edinburgh-research/sess_6b3d51602f58/workspace/flyer.html:35` — planted `£9999` value that the checker flags

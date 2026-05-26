@@ -17,8 +17,9 @@ structured half. Quote the planner's reasoning or the specific subgoal's
 
 ### Your answer
 
-In the first planning cycle of the ex7 session, ticket `tk_3cb8743b`
-produced four subgoals. The second subgoal reads:
+In the real Ex7 run, the first planner ticket was `tk_3cb8743b`. It
+planned four subgoals before any executor tool ran. The useful line is
+the second subgoal:
 
 ```json
 {
@@ -30,21 +31,19 @@ produced four subgoals. The second subgoal reads:
 }
 ```
 
-The signal that caused `assigned_half: "structured"` was the task
-description itself: "Book a venue for 12 people in Haymarket." The
-planner inferred from the party size (12 > 8 auto-booking max) that the
-booking step cannot be handled autonomously by the loop half — it
-requires the structured validation flow (Rasa CALM) to confirm or
-reject. The planner also produced `sg_4` with `assigned_half:
-"structured"` in anticipation of a possible first rejection and a
-second attempt, showing it reasoned ahead about the full round-trip
-topology before any tool call ran.
+The signal was the booking-confirmation step, not just venue research.
+The user asked to book for 12 people, while the structured policy caps
+automatic booking at 8. The planner therefore kept the search work in
+the loop half but assigned the confirmation step to the structured half,
+where Rasa can approve or reject under the fixed rules. It also planned
+`sg_4` as another structured handoff after a retry, so the round-trip
+shape was present in the plan before the first tool call.
 
-The loop half executed `venue_search` first (sg_1), which immediately
-failed on party_size=12. Rather than following the planner's subgoal
-map, the executor called `handoff_to_structured` directly with the
-error data — a divergence from the plan that the bridge then handled
-through its own round logic.
+The executor did not follow that plan cleanly. It called
+`venue_search` with party size 12, hit the cap, and then handed the
+error payload to the structured half. That divergence is visible in the
+trace, but the planner's intent is still clear from the `assigned_half`
+field in `tk_3cb8743b`.
 
 ### Citation (required)
 
@@ -66,29 +65,26 @@ case.
 
 ### Your answer
 
-In session `sess_6b3d51602f58`, `calculate_cost` returned
-`total £556, deposit £111` (trace line 5), but the executor called
-`generate_flyer` with `total_gbp: 540, deposit_required_gbp: 0` (trace
-line 6) — fabricated values. The grader then planted `£9999` as the
-total in the rendered HTML to test the check. `verify_dataflow` extracts
-all `£<N>` patterns from the flyer via regex (after stripping HTML tags)
-and calls `fact_appears_in_log` for each. `£9999` appears in neither any
-tool output nor any tool argument anywhere in the session log, so it
-fails immediately and `verify_dataflow` returns `ok=False` with
-`unverified_facts=["£9999"]`.
+In `sess_6b3d51602f58`, the normal tool sequence ran first:
+`calculate_cost` returned "total £556, deposit £111" at trace line 5.
+The rendered flyer was then edited so the total cell contained `£9999`
+instead. That value is visible in
+`workspace/flyer.html` under `data-testid="total"`, but it never appears
+in the venue, weather, cost, or flyer tool outputs.
 
-A manual reviewer skimming the HTML would see `£9999` in a
-`<dd data-testid="total">` cell and dismiss it as a plausible-looking
-large number — particularly if they already knew the booking was for six
-people at a city-centre venue where £9999 could be mistaken for a
-realistic group rate. The integrity check has no such bias; it simply
-asks "did any tool return or receive this number?" and it did not.
+The check catches this because `verify_dataflow` strips HTML, extracts
+money facts like `£9999`, and checks each fact against the tool-call
+log. When I reconstructed the run and called `verify_dataflow` on that
+flyer, the result was `ok=False` with `unverified_facts=["£9999"]`.
+The legitimate facts from the same flyer, such as `cloudy` and `12`,
+still verified.
 
-To construct the test case: run the scenario with `calculate_cost`
-returning `total: 556`, then monkey-patch `generate_flyer` to write a
-file containing `£9999` as the total. Call `verify_dataflow` on the
-file content. Assert `result.ok == False` and `"£9999" in
-result.unverified_facts`.
+This is the kind of mistake a human reviewer can miss. The venue name
+and weather look right, the page layout looks fine, and the bad value is
+only one small `<dd>` cell. To reproduce it, run Ex5, change only the
+flyer's total to `£9999`, then call `verify_dataflow` on the edited
+HTML. The expected assertion is that the check fails and reports
+`£9999`.
 
 ### Citation (required)
 
@@ -117,30 +113,26 @@ points.
 
 **Primitive: HITL approval.**
 
-**Failure mode:** The LLM executor fabricates a cost figure when calling
-`handoff_to_structured`. The real `calculate_cost` returned `£556`, but
-the executor passes `deposit_gbp: 200` (a plausible-looking value the
-LLM chose without grounding it in the tool output). Rasa accepts the
-booking at £200 deposit. The pub expects £556 on arrival; the customer
-paid for £200. The discrepancy surfaces only at the venue on the day of
-the event — too late to recover without a refund dispute.
+**Failure mode:** fabricated deposit in the forward handoff.
 
-`verify_dataflow` does not catch this: `200` appears in the executor's
-`handoff_to_structured` arguments, so `fact_appears_in_log` returns
-`True` for it. The check confirms the value was in the session log; it
-cannot verify it came from the right tool.
+The failure I would expect first is the executor making up a deposit
+when it calls `handoff_to_structured`. For example, the cost tool may
+return one deposit amount, but the handoff payload may contain
+`deposit_gbp: 200` because the model picked a plausible number while
+assembling the booking dict. Rasa would see a clean-looking structured
+payload and accept it. The customer would then have one deposit figure,
+while the venue's real cost calculation says another.
 
-HITL approval on the `handoff_to_structured` tool call would surface it.
-If `requires_human_approval: true` is set for that tool, the session
-pauses before the forward handoff is written. A human reviewer sees the
-proposed booking dict side-by-side with the tool call log and notices
-`deposit_gbp: 200` never appeared in any `calculate_cost` output. They
-reject the proposal, the executor is re-prompted with the actual £556
-figure, and the booking is retried with the correct amount. In the
-current logs every `handoff_to_structured` call shows
-`requires_human_approval: false` — that field is the exact configuration
-switch to flip before shipping.
+HITL approval is the primitive I would use to surface that before the
+booking leaves the loop half. If the handoff tool requires approval, the
+session pauses before the forward handoff is written. A reviewer checks
+the proposed booking payload against the preceding tool calls and either
+approves it or rejects it for correction. The current Ex7 ticket shows
+the opposite setting: the `handoff_to_structured` call has
+`requires_human_approval: false`. For a real pub-booking business, that
+is the switch I would flip first, because the handoff is the point where
+an ungrounded number becomes an external commitment.
 
 ### Citation (optional but encouraged)
 
-- `examples/ex7-handoff-bridge/sess_8403bd4eb9c8/logs/tickets/tk_7f8c234a/raw_output.json` — `handoff_to_structured` tool call with `requires_human_approval: false`; this is the field that must be `true` in production to surface the fabricated-cost failure
+- `examples/ex7-handoff-bridge/sess_298116815c48/logs/tickets/tk_1176eeca/raw_output.json` — `handoff_to_structured` tool call with `requires_human_approval: false`; this is the field that must be `true` in production to surface the fabricated-deposit failure
